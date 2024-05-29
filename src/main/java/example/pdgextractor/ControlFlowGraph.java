@@ -4,12 +4,10 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.expr.ConditionalExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.LambdaExpr;
-import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class ControlFlowGraph {
     private final DirectedGraph graph;
@@ -37,7 +35,7 @@ public class ControlFlowGraph {
     }
 
     public void visit(Node node) {
-        if (node instanceof Expression || node instanceof VariableDeclarationExpr) {
+        if (node instanceof Expression) {
             if (!(node instanceof LambdaExpr)) {
                 addNextNode(node);
             }
@@ -62,12 +60,12 @@ public class ControlFlowGraph {
         if (node.getElseStmt().isPresent()) {
             visit(node.getElseStmt().get());
         }
-        this.previousNodes.push(this.previousNodes.pop().stream().collect(Collectors.toSet()));
+        this.previousNodes.push(new HashSet<>(this.previousNodes.pop()));
     }
 
     public void visitContinueStatement(ContinueStmt node) {
         Set<Object> other = this.previousNodes.pop();
-        this.continueFromNodes.push(this.continueFromNodes.pop().stream().collect(Collectors.toSet()));
+        this.continueFromNodes.push(new HashSet<>(this.continueFromNodes.pop()));
         this.previousNodes.push(EmptySet);
     }
 
@@ -81,14 +79,19 @@ public class ControlFlowGraph {
     public void visitYieldStatement(YieldStmt node) {
         addNextNode(node);
         MethodEntryNode fromNode = new MethodEntryNode(this.context);
-        for (Object toNode : this.previousNodes.peek()) {
-            this.graph.addEdge(fromNode, toNode, new AbstractMap.SimpleEntry<>(YieldEdge, null), this.context, this.context);
+        if (this.previousNodes.peek() != null) {
+            for (Object toNode : this.previousNodes.peek()) {
+                this.graph.addEdge(fromNode, toNode, new AbstractMap.SimpleEntry<>(YieldEdge, null), this.context, this.context);
+            }
         }
     }
 
     public void visitForEachStatement(ForEachStmt node) {
         visit(node.getIterable());
-        Object toNode = this.previousNodes.peek().iterator().next();
+        Object toNode = null;
+        if (this.previousNodes.peek() != null) {
+            toNode = this.previousNodes.peek().iterator().next();
+        }
         this.breakingFromNodes.push(EmptySet);
         this.continueFromNodes.push(EmptySet);
         visit(node.getBody());
@@ -105,7 +108,10 @@ public class ControlFlowGraph {
         node.getInitialization().forEach(this::addNextNode);
         Set<Object> nodes = this.previousNodes.peek();
         node.getCompare().ifPresent(this::visit);
-        Object commonExitPoint = getCommonExitPoint(nodes);
+        Object commonExitPoint = null;
+        if (nodes != null) {
+            commonExitPoint = getCommonExitPoint(nodes);
+        }
         Set<Object> immutableHashSet = this.previousNodes.peek();
         this.continueFromNodes.push(EmptySet);
         this.breakingFromNodes.push(EmptySet);
@@ -114,7 +120,9 @@ public class ControlFlowGraph {
         for (Object fromNode : this.previousNodes.pop()) {
             this.graph.addEdge(fromNode, commonExitPoint, new AbstractMap.SimpleEntry<>(ControlFlowEdge, null), this.context, this.context);
         }
-        this.previousNodes.push(new HashSet<>(immutableHashSet));
+        if (immutableHashSet != null) {
+            this.previousNodes.push(new HashSet<>(immutableHashSet));
+        }
     }
 
     public void visitSwitchStatement(SwitchStmt node) {
@@ -144,7 +152,7 @@ public class ControlFlowGraph {
 
     public void visitThrowStatement(ThrowStmt node) {
         addNextNode(node);
-        this.throwingNodes.push(this.throwingNodes.pop().stream().collect(Collectors.toSet()));
+        this.throwingNodes.push(new HashSet<>(this.throwingNodes.pop()));
         this.previousNodes.pop();
         this.previousNodes.push(EmptySet);
     }
@@ -153,16 +161,24 @@ public class ControlFlowGraph {
         this.throwingNodes.push(EmptySet);
         visit(node.getTryBlock());
         if (!node.getCatchClauses().isEmpty()) {
-            Set<Object> collection = new HashSet<>(Objects.requireNonNull(this.previousNodes.peek()));
-            Set<Object> other = new HashSet<>(collection);
+            Set<Object> collection = null;
+            if (this.previousNodes.peek() != null) {
+                collection = new HashSet<>(this.previousNodes.peek());
+            }
+            Set<Object> other = null;
+            if (collection != null) {
+                other = new HashSet<>(collection);
+            }
             for (CatchClause catchClause : node.getCatchClauses()) {
                 visit(catchClause);
-                other.addAll(this.previousNodes.pop());
+                if (other != null) {
+                    other.addAll(this.previousNodes.pop());
+                }
                 this.previousNodes.push(collection);
             }
             this.previousNodes.push(new HashSet<>(this.previousNodes.pop()));
         } else {
-            this.returnFromNodes.push(this.returnFromNodes.pop().stream().collect(Collectors.toSet()));
+            this.returnFromNodes.push(new HashSet<>(this.returnFromNodes.pop()));
         }
     }
 
@@ -173,13 +189,16 @@ public class ControlFlowGraph {
         Set<Object> other = this.previousNodes.pop();
         this.previousNodes.push(immutableHashSet);
         visit(node.getElseExpr());
-        this.previousNodes.push(this.previousNodes.pop().stream().collect(Collectors.toSet()));
+        this.previousNodes.push(new HashSet<>(this.previousNodes.pop()));
     }
 
     public void visitWhileStatement(WhileStmt node) {
         Set<Object> nodes = this.previousNodes.peek();
         visit(node.getCondition());
-        Object commonExitPoint = getCommonExitPoint(nodes);
+        Object commonExitPoint = null;
+        if (nodes != null) {
+            commonExitPoint = getCommonExitPoint(nodes);
+        }
         Set<Object> immutableHashSet = this.previousNodes.peek();
         this.continueFromNodes.push(EmptySet);
         this.breakingFromNodes.push(EmptySet);
@@ -187,21 +206,26 @@ public class ControlFlowGraph {
         for (Object fromNode : this.previousNodes.pop()) {
             this.graph.addEdge(fromNode, commonExitPoint, new AbstractMap.SimpleEntry<>(ControlFlowEdge, null), this.context, this.context);
         }
-        this.previousNodes.push(immutableHashSet.stream().collect(Collectors.toSet()));
+        if (immutableHashSet != null) {
+            this.previousNodes.push(new HashSet<>(immutableHashSet));
+        }
     }
 
     public void visitDoStatement(DoStmt node) {
-        Object commonExitPoint = getCommonExitPoint(this.previousNodes.peek());
+        Object commonExitPoint = null;
+        if (this.previousNodes.peek() != null) {
+            commonExitPoint = getCommonExitPoint(this.previousNodes.peek());
+        }
         this.continueFromNodes.push(EmptySet);
         this.breakingFromNodes.push(EmptySet);
         visit(node.getBody());
-        this.previousNodes.push(this.previousNodes.pop().stream().collect(Collectors.toSet()));
+        this.previousNodes.push(new HashSet<>(this.previousNodes.pop()));
         visit(node.getCondition());
         Set<Object> other = this.previousNodes.pop();
         for (Object fromNode : other) {
             this.graph.addEdge(fromNode, commonExitPoint, new AbstractMap.SimpleEntry<>(ControlFlowEdge, null), this.context, this.context);
         }
-        this.previousNodes.push(this.breakingFromNodes.pop().stream().collect(Collectors.toSet()));
+        this.previousNodes.push(new HashSet<>(this.breakingFromNodes.pop()));
     }
 
     public void addMethodDeclaration(Node declarationBody, ResolvedMethodDeclaration rootSymbol) {
@@ -221,7 +245,7 @@ public class ControlFlowGraph {
         if(nodes.isEmpty()) return null;
         Iterator<Object> iterator = nodes.iterator();
         Object firstNode = iterator.next();
-        Set<Object> commonExits = new HashSet<>((Collection) this.graph.getOutEdgesFrom(firstNode));
+        Set<Object> commonExits = new HashSet<>(this.graph.getOutEdgesFrom(firstNode));
         while(iterator.hasNext()){
             Object node = iterator.next();
             commonExits.retainAll(this.graph.getOutEdgesFrom(node));

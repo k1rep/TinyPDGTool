@@ -3,12 +3,17 @@ package example.pdgextractor;
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade;
+import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserConstructorDeclaration;
+import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserMethodDeclaration;
+import com.github.javaparser.symbolsolver.reflectionmodel.ReflectionMethodDeclaration;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
 
@@ -58,11 +63,14 @@ public class PdgExtractor {
         JavaParserFacade javaParserFacade = JavaParserFacade.get(typeSolver);
         List<SimpleEntry<BlockStmt, ResolvedMethodDeclaration>> list = allMethodDeclarationBodies();
         for (SimpleEntry<BlockStmt, ResolvedMethodDeclaration> tuple : list) {
+            logger.info("Extracting control flow for " + tuple.getValue().getName() + "...");
             new ControlFlowGraph(pdg, tuple.getValue()).addMethodDeclaration(tuple.getKey(), tuple.getValue());
+            logger.info("Extracting method calls for " + tuple.getValue().getName() + "...");
             new MethodCallGraph(pdg, javaParserFacade).visit(tuple.getKey(), null);
         }
         for (SimpleEntry<BlockStmt, ResolvedMethodDeclaration> tuple : list) {
-            new DataFlowGraph(pdg, javaParserFacade).addDataFlowEdges(tuple.getKey(), tuple.getValue(),null);
+            logger.info("Extracting data flow for " + tuple.getValue().getName() + "...");
+            new DataFlowGraph(pdg, javaParserFacade).addDataFlowEdges(tuple.getKey(), tuple.getValue(), null);
         }
     }
 
@@ -91,24 +99,39 @@ public class PdgExtractor {
         return pdg;
     }
 
-    public static String dotLineSpan(Object node) {
+    public static String dotNodeSpan(Object node) {
         if (node instanceof MethodEntryNode) {
             return ((MethodEntryNode) node).toSpan();
         } else if (node instanceof MethodExitNode) {
             return ((MethodExitNode) node).toSpan();
         } else if (node instanceof UnkMethodEntryNode) {
             return ((UnkMethodEntryNode) node).toSpan();
-        } else {
+        } else if (node instanceof Node){
+            return ((Node) node).getRange().map(r -> r.begin.line + "-" + r.end.line).orElse("");
+        }else {
             return "";
         }
     }
 
-
+    public static String dotNodeName(Object node){
+        if(node instanceof UnkMethodEntryNode) {
+            return "Unk";
+        }else if(node instanceof JavaParserMethodDeclaration){
+            return ((JavaParserMethodDeclaration) node).getWrappedNode().getDeclarationAsString();
+        }else if(node instanceof ReflectionMethodDeclaration) {
+            return ((ReflectionMethodDeclaration) node).getName();
+        }else if(node instanceof JavaParserConstructorDeclaration){
+            return ((JavaParserConstructorDeclaration<?>) node).getWrappedNode().getDeclarationAsString();
+        }
+        else{
+            return node.toString();
+        }
+    }
 
     public void exportToDot(String filename) throws IOException {
         pdg.toDot(filename,
-                Object::toString,
-                PdgExtractor::dotLineSpan,
+                PdgExtractor::dotNodeName,
+                PdgExtractor::dotNodeSpan,
                 PdgExtractor::dotLineType
                 );
     }

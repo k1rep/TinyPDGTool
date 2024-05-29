@@ -7,28 +7,25 @@ import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.nodeTypes.NodeWithArguments;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.MethodUsage;
 import com.github.javaparser.resolution.SymbolResolver;
 import com.github.javaparser.resolution.declarations.*;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade;
 import com.github.javaparser.symbolsolver.model.resolution.TypeSolver;
+import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 
 import java.util.*;
 
 public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
     private final Map<AbstractNode, Set<AbstractNode>> subtypingRelationships;
-    private final JavaParserFacade javaFacade;
-    private final boolean includeExternalSymbols;
-    private final TypeSolver typeSolver;
     private final SymbolResolver symbolResolver;
     private final Set<ResolvedMethodDeclaration> visitedMethods = new HashSet<>();
 
     public FileTypeRelationCollector(JavaParserFacade javaParserFacade, Map<AbstractNode, Set<AbstractNode>> relationships, boolean includeExternalSymbols) {
-        this.javaFacade = javaParserFacade;
         this.subtypingRelationships = relationships;
-        this.includeExternalSymbols = includeExternalSymbols;
-        this.typeSolver = javaParserFacade.getTypeSolver();
+        TypeSolver typeSolver = javaParserFacade.getTypeSolver();
         this.symbolResolver = new JavaSymbolSolver(typeSolver);
     }
 
@@ -56,17 +53,31 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
         if (!isUsedSymbol(methodDecl) || !visitedMethods.add(methodDecl)) {
             return;
         }
+        String location = null;
+        Optional<MethodDeclaration> methodDeclaration = methodDecl.toAst();
+        if(methodDeclaration.isPresent()) {
+            location = methodDeclaration.get().getRange().map(r -> r.begin.toString()).orElse(null);
+        }
 
         for (ResolvedReferenceType iface : methodDecl.declaringType().getAllAncestors()){
-            for (ResolvedMethodDeclaration ifaceMethod : iface.getAllMethods()) {
+            for (MethodUsage ifaceMethod : iface.getDeclaredMethods()) {
                 if (methodDecl.declaringType().getAllMethods().contains(ifaceMethod)) {
-                    addSubtypingRelation(new MethodReturnSymbol(ifaceMethod, null), new MethodReturnSymbol(methodDecl, null));
+                    Optional<MethodDeclaration> interfaceMethod = ifaceMethod.getDeclaration().toAst();
+                    if(interfaceMethod.isPresent()){
+                        ResolvedMethodDeclaration resolvedInterfaceMethod = symbolResolver.resolveDeclaration(interfaceMethod.get(), ResolvedMethodDeclaration.class);
+                        addSubtypingRelation(new MethodReturnSymbol(resolvedInterfaceMethod, interfaceMethod.get().getRange().map(r -> r.begin.toString()).orElse(null)),
+                                new MethodReturnSymbol(methodDecl, location));
+                    }
                 }
             }
         }
 
         for (ResolvedMethodDeclaration ancestorMethod : methodDecl.declaringType().getDeclaredMethods()) {
-            addSubtypingRelation(new MethodReturnSymbol(ancestorMethod, null), new MethodReturnSymbol(methodDecl, null));
+            Optional<MethodDeclaration> ancestorMethodDecl = ancestorMethod.toAst();
+            if(ancestorMethodDecl.isPresent()) {
+                addSubtypingRelation(new MethodReturnSymbol(ancestorMethod, ancestorMethodDecl.get().getRange().map(r -> r.begin.toString()).orElse(null)),
+                        new MethodReturnSymbol(methodDecl, location));
+            }
         }
     }
 
