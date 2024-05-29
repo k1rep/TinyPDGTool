@@ -14,7 +14,6 @@ import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade;
 import com.github.javaparser.symbolsolver.model.resolution.TypeSolver;
-import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 
 import java.util.*;
 
@@ -30,6 +29,9 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
     }
 
     private void addSubtypingRelation(AbstractNode moreGeneralType, AbstractNode moreSpecificType) {
+        if(moreGeneralType == null || moreSpecificType == null) {
+            return;
+        }
         subtypingRelationships.computeIfAbsent(moreGeneralType, k -> new HashSet<>()).add(moreSpecificType);
     }
 
@@ -86,7 +88,9 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
         super.visit(n, arg);
         ResolvedValueDeclaration varDecl = resolveVariable(n.getTarget());
         ResolvedValueDeclaration valueDecl = resolveVariable(n.getValue());
-
+        if (varDecl == null || valueDecl == null) {
+            return;
+        }
         addSubtypingRelation(new VariableSymbol(varDecl, n.getTarget().getRange().map(r -> r.begin.toString()).orElse(null)), new VariableSymbol(valueDecl, n.getValue().getRange().map(r -> r.begin.toString()).orElse(null)));
     }
 

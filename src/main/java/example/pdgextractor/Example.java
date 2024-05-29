@@ -23,4 +23,21 @@ public class Example {
         System.out.println(a+c);
         function();
     }
+
+    public static void ifelsewhile(){
+        int a = 0;
+        float b = 10.0f;
+        a++;
+        int c = a;
+        if(b < 1) {
+            a++;
+        }else{
+            a--;
+        }
+        a = 2;
+        c = (int) ((float) b+a);
+        while(a < 10){
+            a++;
+        }
+    }
 }
