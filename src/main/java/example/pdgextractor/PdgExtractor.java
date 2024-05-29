@@ -91,12 +91,25 @@ public class PdgExtractor {
         return pdg;
     }
 
+    public static String dotLineSpan(Object node) {
+        if (node instanceof MethodEntryNode) {
+            return ((MethodEntryNode) node).toSpan();
+        } else if (node instanceof MethodExitNode) {
+            return ((MethodExitNode) node).toSpan();
+        } else if (node instanceof UnkMethodEntryNode) {
+            return ((UnkMethodEntryNode) node).toSpan();
+        } else {
+            return "";
+        }
+    }
+
+
+
     public void exportToDot(String filename) throws IOException {
         pdg.toDot(filename,
                 Object::toString,
-                node -> "",  // Placeholder for node span function
-                PdgExtractor::dotLineType,
-                node -> "black"  // Placeholder for node color function
+                PdgExtractor::dotLineSpan,
+                PdgExtractor::dotLineType
                 );
     }
 

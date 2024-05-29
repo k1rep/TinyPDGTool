@@ -1,6 +1,5 @@
 package example.pdgextractor;
 
-import com.github.javaparser.ast.Node;
 import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 import com.github.javaparser.resolution.types.ResolvedType;
 

@@ -104,7 +104,7 @@ public class TypeConstraints {
 
     private Map<String, String> nodeAsJsonInfo(AbstractNode node) {
         Map<String, String> info = new HashMap<>();
-        info.put("Location", node.getLocation().toString());
+        info.put("Location", node.getLocation());
         if (node instanceof LiteralSymbol) {
             info.put("value", node.toString());
             info.put("kind", "const");
@@ -116,8 +116,8 @@ public class TypeConstraints {
         } else if (node instanceof VariableSymbol) {
             info.put("name", node.getName());
             info.put("kind", "variable");
-            info.put("type", ((VariableSymbol) node).getType());
-            info.put("symbolKind", ((VariableSymbol) node).getType());
+            info.put("type", node.getType());
+            info.put("symbolKind", node.getType());
         }
         return info;
     }

@@ -62,7 +62,11 @@ public class DirectedGraph {
         return input.replace("\"", "''").replace("\r", "\\r").replace("\n", "\\n");
     }
 
-    public void toDot(String filepath, Function<Object, String> nodeNames, Function<Object, String> nodeSpans, Function<Map.Entry<String, Object>, String> arrowStyle, Function<Object, String> nodeColour) throws IOException {
+    public void toDot(String filepath, Function<Object, String> nodeNames, Function<Object, String> nodeSpans, Function<Map.Entry<String, Object>, String> arrowStyle) throws IOException {
+        toDot(filepath, nodeNames, nodeSpans, arrowStyle, null);
+    }
+
+    public void toDot(String filepath, Function<Object, String> nodeNames, Function<Object, String> nodeSpans, Function<Map.Entry<String, Object>, String> arrowStyle, Function<Object, String> nodeColor) throws IOException {
         Map<Object, Set<Integer>> contextMap = new HashMap<>();
         for (var entry : idToObject.entrySet()) {
             Object context = contexts.getOrDefault(entry.getKey(), "none");
@@ -81,8 +85,8 @@ public class DirectedGraph {
 
                 for (int key : entry.getValue()) {
                     String nodeLabel = "n" + key + " [label=\"" + dotEscape(nodeNames.apply(idToObject.get(key))) + "\", span=\"" + dotEscape(nodeSpans.apply(idToObject.get(key))) + "\"";
-                    if (nodeColour != null) {
-                        nodeLabel += ", color=\"" + nodeColour.apply(idToObject.get(key)) + "\"";
+                    if (nodeColor != null) {
+                        nodeLabel += ", color=\"" + nodeColor.apply(idToObject.get(key)) + "\"";
                     }
                     nodeLabel += "];";
                     writer.write(nodeLabel + "\n");

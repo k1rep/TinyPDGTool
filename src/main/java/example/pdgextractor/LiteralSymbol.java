@@ -61,7 +61,7 @@ public class LiteralSymbol extends AbstractNode {
 
     @Override
     public String toString() {
-        return constant == null ? "const:null" : "const:" + constant.toString() + " : " + getType();
+        return constant == null ? "const:null" : "const:" + constant + " : " + getType();
     }
 
     @Override
@@ -69,7 +69,7 @@ public class LiteralSymbol extends AbstractNode {
         if (constant == null) {
             return "const\n<B>null</B>";
         } else {
-            return "const:" + constant.toString() + "\n<B>" + getType() + "</B>";
+            return "const:" + constant + "\n<B>" + getType() + "</B>";
         }
     }
 }

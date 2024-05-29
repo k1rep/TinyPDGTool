@@ -1,17 +1,20 @@
 package example.pdgextractor;
 
 import com.github.javaparser.Range;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
-import com.github.javaparser.ast.Node;
+import com.github.javaparser.resolution.declarations.ResolvedMethodLikeDeclaration;
+
+import java.util.Optional;
 
 public class MethodExitNode {
-    private final ResolvedMethodDeclaration methodSymbol;
+    private final ResolvedMethodLikeDeclaration methodSymbol;
 
-    public MethodExitNode(ResolvedMethodDeclaration symbol) {
+    public MethodExitNode(ResolvedMethodLikeDeclaration symbol) {
         this.methodSymbol = symbol;
     }
 
-    public ResolvedMethodDeclaration getMethodSymbol() {
+    public ResolvedMethodLikeDeclaration getMethodSymbol() {
         return methodSymbol;
     }
 
@@ -35,10 +38,12 @@ public class MethodExitNode {
 
     public String toSpan() {
         if (methodSymbol instanceof ResolvedMethodDeclaration) {
-            Node method = (Node) methodSymbol;
-            if (method.getRange().isPresent()) {
-                Range range = method.getRange().get();
-                return String.format("%d-%d", range.begin.line, range.end.line);
+            Optional<MethodDeclaration> method = ((ResolvedMethodDeclaration) methodSymbol).toAst();
+            if(method.isPresent()) {
+                if (method.get().getRange().isPresent()) {
+                    Range range = method.get().getRange().get();
+                    return String.format("%d-%d", range.begin.line, range.end.line);
+                }
             }
         }
         return "";
