@@ -1,194 +1,142 @@
 package example.pdgextractor;
-
 import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.body.VariableDeclarator;
-import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.VariableDeclarationExpr;
+import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.ResolvedDeclaration;
 import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade;
 
 import java.util.*;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
 
 public class DataFlowGraph extends VoidVisitorAdapter<Void> {
-    private static final Logger logger = Logger.getLogger(DataFlowGraph.class.getName());
     private final DirectedGraph graph;
     private final JavaParserFacade javaParserFacade;
-    private final Deque<Map<ResolvedValueDeclaration, Set<Object>>> previousOutFlow = new ArrayDeque<>();
-    private final Deque<Map<ResolvedValueDeclaration, Set<Object>>> continueOutFlow = new ArrayDeque<>();
-    private final Deque<Map<ResolvedValueDeclaration, Set<Object>>> breakOutFlow = new ArrayDeque<>();
-
-    public static final String DATA_FLOW_EDGE = "dataflow";
+    private final Deque<Map<String, Set<Node>>> previousOutFlow = new ArrayDeque<>();
 
     public DataFlowGraph(DirectedGraph graph, JavaParserFacade javaParserFacade) {
         this.graph = graph;
         this.javaParserFacade = javaParserFacade;
     }
 
-    private void addNextNode(ExpressionStmt syntaxNode) {
-        logger.info("Syntax node: " + syntaxNode);
-        Node parentNode = syntaxNode.getParentNode().orElse(null);
-        while (parentNode != null && !this.graph.containsNode(parentNode)){
-            parentNode =  parentNode.getParentNode().orElse(null);
+    private void addNextNode(Expression node) {
+        Node syntaxNode = node;
+        while (syntaxNode != null && !this.graph.containsNode(syntaxNode)) {
+            syntaxNode = syntaxNode.getParentNode().orElse(null);
         }
-        if(parentNode == null) {
-            return;
+        if (syntaxNode == null) return;
+        if (previousOutFlow.isEmpty()) {
+            previousOutFlow.push(new HashMap<>());
         }
-        logger.info("Debugging=================");
-        ResolvedValueDeclaration valueDeclaration;
-        try {
-            valueDeclaration = javaParserFacade.solve(syntaxNode.getExpression()).getCorrespondingDeclaration();
-        } catch (Exception e) {
-            return;
-        }
-        logger.info("Debugging=================");
-        Map<ResolvedValueDeclaration, Set<Object>> dictionary = new HashMap<>(this.previousOutFlow.pop());
-
-        if (dictionary.containsKey(valueDeclaration)) {
-            for (Object fromNode : dictionary.get(valueDeclaration)) {
-                this.graph.addEdge(fromNode, syntaxNode, new AbstractMap.SimpleEntry<>(DATA_FLOW_EDGE, valueDeclaration), fromNode.toString(), Objects.requireNonNull(syntaxNode).toString());
+        Map<String, Set<Node>> currentOutFlow = new HashMap<>(previousOutFlow.pop());
+        Set<String> readSymbols = getReadSymbols(node);
+        for (String symbol : readSymbols) {
+            if (currentOutFlow.containsKey(symbol)) {
+                for (Node fromNode : currentOutFlow.get(symbol)) {
+                    this.graph.addEdge(fromNode, syntaxNode, new AbstractMap.SimpleEntry<>("dataflow", symbol), null, null);
+                }
             }
         }
 
-        dictionary.put(valueDeclaration, Collections.singleton(syntaxNode));
-        this.previousOutFlow.push(dictionary);
+        Set<String> writtenSymbols = getWrittenSymbols(node);
+        for (String symbol : writtenSymbols) {
+            currentOutFlow.put(symbol, new HashSet<>(Collections.singletonList(syntaxNode)));
+        }
+        previousOutFlow.push(currentOutFlow);
     }
 
-    private void addDeclarations(VariableDeclarationExpr node) {
-        Node parentNode = node.getParentNode().orElse(null);
-        while (parentNode != null && !this.graph.containsNode(parentNode)) {
-            parentNode = parentNode.getParentNode().orElse(null);
-        }
-        if (parentNode == null) {
-            return;
-        }
+    private Set<String> getReadSymbols(Expression node) {
+        Set<String> readSymbols = new HashSet<>();
+        node.findAll(NameExpr.class).forEach(nameExpr -> {
+            try {
+                ResolvedDeclaration resolvedDeclaration = javaParserFacade.solve(nameExpr).getCorrespondingDeclaration();
+                if (resolvedDeclaration instanceof ResolvedValueDeclaration) {
+                    readSymbols.add(resolvedDeclaration.getName());
+                }
+            } catch (Exception ignored) {
+            }
+        });
+        return readSymbols;
+    }
 
-        Map<ResolvedValueDeclaration, Set<Object>> dictionary = new HashMap<>(this.previousOutFlow.pop());
-        for (VariableDeclarator variable : node.getVariables()) {
-            ResolvedValueDeclaration declaredSymbol = javaParserFacade.solve(variable.getNameAsExpression()).getCorrespondingDeclaration();
-            dictionary.put(declaredSymbol, Collections.singleton(parentNode));
+    private Set<String> getWrittenSymbols(Expression node) {
+        Set<String> writtenSymbols = new HashSet<>();
+        if (node instanceof AssignExpr) {
+            AssignExpr assignExpr = (AssignExpr) node;
+            try {
+                ResolvedDeclaration resolvedDeclaration = javaParserFacade.solve(assignExpr.getTarget()).getCorrespondingDeclaration();
+                if (resolvedDeclaration instanceof ResolvedValueDeclaration) {
+                    writtenSymbols.add(resolvedDeclaration.getName());
+                }
+            } catch (Exception ignored) {
+            }
         }
-
-        this.previousOutFlow.push(dictionary);
+        return writtenSymbols;
     }
 
     @Override
-    public void visit(BlockStmt node, Void arg) {
-        this.previousOutFlow.push(new HashMap<>());
-        for (Node childNode : node.getChildNodes()) {
-            logger.info(childNode.getMetaModel().getTypeName());
-            logger.info("Visiting " + childNode);
-            logger.info("Previous outflow: " + this.previousOutFlow.peek());
-            if (childNode instanceof VariableDeclarationExpr) {
-                addDeclarations((VariableDeclarationExpr) childNode);
-            } else if(childNode instanceof ExpressionStmt) {
-                addNextNode((ExpressionStmt) childNode);
-            } else{
-                childNode.accept(this, arg);
-            }
+    public void visit(ExpressionStmt node, Void arg) {
+        super.visit(node, arg);
+        if (node.getExpression() != null) {
+            addNextNode(node.getExpression());
         }
-        this.previousOutFlow.pop();
+    }
 
+    @Override
+    public void visit(VariableDeclarationExpr node, Void arg) {
+        super.visit(node, arg);
+        addDeclarations(node);
+    }
+
+    private void addDeclarations(VariableDeclarationExpr node) {
+        Node parent = node;
+        while (parent != null && !this.graph.containsNode(parent)) {
+            parent = parent.getParentNode().orElse(null);
+        }
+        if (parent == null) return;
+        if (previousOutFlow.isEmpty()) {
+            previousOutFlow.push(new HashMap<>());
+        }
+        Map<String, Set<Node>> currentOutFlow = new HashMap<>(previousOutFlow.pop());
+        Node finalParent = parent;
+        node.getVariables().forEach(variable -> {
+            String name = variable.getNameAsString();
+            currentOutFlow.put(name, new HashSet<>(Collections.singletonList(finalParent)));
+            variable.getInitializer().ifPresent(initializer -> initializer.accept(this, null));
+        });
+        previousOutFlow.push(currentOutFlow);
     }
 
     @Override
     public void visit(IfStmt node, Void arg) {
         node.getCondition().accept(this, arg);
-        Map<ResolvedValueDeclaration, Set<Object>> immutableDictionary = this.previousOutFlow.peek();
+        Map<String, Set<Node>> beforeIf = previousOutFlow.peek();
         node.getThenStmt().accept(this, arg);
-        Map<ResolvedValueDeclaration, Set<Object>> dict2 = this.previousOutFlow.pop();
-        this.previousOutFlow.push(immutableDictionary);
-        node.getElseStmt().ifPresent(elseStmt -> elseStmt.accept(this, arg));
-        this.previousOutFlow.push(mergeDicts(this.previousOutFlow.pop(), dict2));
+        Map<String, Set<Node>> thenOutFlow = previousOutFlow.pop();
+        previousOutFlow.push(beforeIf);
+        node.getElseStmt().ifPresent(stmt -> stmt.accept(this, arg));
+        Map<String, Set<Node>> elseOutFlow = previousOutFlow.pop();
+        previousOutFlow.push(mergeDicts(thenOutFlow, elseOutFlow));
     }
 
     @Override
     public void visit(WhileStmt node, Void arg) {
         node.getCondition().accept(this, arg);
-        Map<ResolvedValueDeclaration, Set<Object>> dict2 = this.previousOutFlow.peek();
+        Map<String, Set<Node>> beforeWhile = previousOutFlow.peek();
         node.getBody().accept(this, arg);
-        this.previousOutFlow.push(mergeDicts(this.previousOutFlow.pop(), Objects.requireNonNull(dict2)));
+        previousOutFlow.push(mergeDicts(Objects.requireNonNull(beforeWhile), previousOutFlow.pop()));
     }
 
-    @Override
-    public void visit(ForEachStmt node, Void arg) {
-        node.getIterable().accept(this, arg);
-        Map<ResolvedValueDeclaration, Set<Object>> dict1 = new HashMap<>(this.previousOutFlow.pop());
-        ResolvedValueDeclaration symbol = javaParserFacade.solve(node.getVariable()).getCorrespondingDeclaration();
-        dict1.put(symbol, Collections.singleton(node.getIterable()));
-        this.previousOutFlow.push(dict1);
-        node.getBody().accept(this, arg);
-        this.previousOutFlow.push(mergeDicts(dict1, this.previousOutFlow.pop()));
-    }
-
-    @Override
-    public void visit(ForStmt node, Void arg) {
-        for (Expression initializer : node.getInitialization()) {
-            initializer.accept(this, arg);
-        }
-        node.getCompare().ifPresent(compare -> compare.accept(this, arg));
-        Map<ResolvedValueDeclaration, Set<Object>> dict1 = this.previousOutFlow.peek();
-        node.getBody().accept(this, arg);
-        for (Expression update : node.getUpdate()) {
-            update.accept(this, arg);
-        }
-        this.previousOutFlow.push(mergeDicts(Objects.requireNonNull(dict1), this.previousOutFlow.pop()));
-    }
-
-    @Override
-    public void visit(DoStmt node, Void arg) {
-        node.getBody().accept(this, arg);
-        node.getCondition().accept(this, arg);
-    }
-
-    private Map<ResolvedValueDeclaration, Set<Object>> mergeDicts(
-            Map<ResolvedValueDeclaration, Set<Object>> dict1,
-            Map<ResolvedValueDeclaration, Set<Object>> dict2) {
-        Map<ResolvedValueDeclaration, Set<Object>> result = new HashMap<>(dict1);
-        for (Map.Entry<ResolvedValueDeclaration, Set<Object>> entry : dict2.entrySet()) {
-            result.merge(entry.getKey(), entry.getValue(), (set1, set2) -> {
-                Set<Object> mergedSet = new HashSet<>(set1);
-                mergedSet.addAll(set2);
-                return mergedSet;
-            });
+    private Map<String, Set<Node>> mergeDicts(Map<String, Set<Node>> dict1, Map<String, Set<Node>> dict2) {
+        Map<String, Set<Node>> result = new HashMap<>();
+        Set<String> keys = new HashSet<>(dict1.keySet());
+        keys.addAll(dict2.keySet());
+        for (String key : keys) {
+            Set<Node> mergedSet = new HashSet<>();
+            if (dict1.containsKey(key)) mergedSet.addAll(dict1.get(key));
+            if (dict2.containsKey(key)) mergedSet.addAll(dict2.get(key));
+            result.put(key, mergedSet);
         }
         return result;
-    }
-
-    public void addDataFlowEdges(BlockStmt node, ResolvedMethodDeclaration symbol, Map<ResolvedValueDeclaration, Set<Object>> existingNode) {
-        if (node == null || symbol == null) {
-            return;
-        }
-
-        if (existingNode == null) {
-            existingNode = new HashMap<>();
-        }
-
-        Set<Object> startingInFlows = new HashSet<>();
-        startingInFlows.add(new MethodEntryNode(symbol));
-
-        Map<ResolvedValueDeclaration, Set<Object>> initialFlow = existingNode.entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        entry -> entry.getValue().contains(symbol) ? startingInFlows : entry.getValue()
-                ));
-
-        this.previousOutFlow.push(initialFlow);
-
-        this.visit(node, null);
-
-        Map<ResolvedValueDeclaration, Set<Object>> result = this.previousOutFlow.pop();
-        MethodExitNode toNode = new MethodExitNode(symbol);
-        logger.info(result.toString());
-        for (Map.Entry<ResolvedValueDeclaration, Set<Object>> entry : result.entrySet()) {
-            for (Object fromNode : entry.getValue()) {
-                logger.info("Adding dataflow edge from " + fromNode + " to " + toNode);
-                this.graph.addEdge(fromNode, toNode, new AbstractMap.SimpleEntry<>(DATA_FLOW_EDGE, entry.getKey()), fromNode.toString(), toNode.toString());
-            }
-        }
     }
 }

@@ -8,7 +8,6 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
-import com.github.javaparser.resolution.declarations.ResolvedValueDeclaration;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade;
 import com.github.javaparser.symbolsolver.javaparsermodel.declarations.JavaParserConstructorDeclaration;
@@ -67,11 +66,10 @@ public class PdgExtractor {
             new ControlFlowGraph(pdg, tuple.getValue()).addMethodDeclaration(tuple.getKey(), tuple.getValue());
             logger.info("Extracting method calls for " + tuple.getValue().getName() + "...");
             new MethodCallGraph(pdg, javaParserFacade).visit(tuple.getKey(), null);
+            DataFlowGraph dataFlowGraph = new DataFlowGraph(pdg, javaParserFacade);
+            dataFlowGraph.visit(tuple.getKey(), null);
         }
-        for (SimpleEntry<BlockStmt, ResolvedMethodDeclaration> tuple : list) {
-            logger.info("Extracting data flow for " + tuple.getValue().getName() + "...");
-            new DataFlowGraph(pdg, javaParserFacade).addDataFlowEdges(tuple.getKey(), tuple.getValue(), null);
-        }
+
     }
 
     private static String dotLineType(Map.Entry<String, Object> edgeType) {
