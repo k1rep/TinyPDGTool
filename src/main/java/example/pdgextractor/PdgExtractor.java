@@ -134,57 +134,60 @@ public class PdgExtractor {
                 );
     }
 
-    public static SimpleEntry<CompilationUnit, CombinedTypeSolver> compile(String projectDirectory, String targetFile) {
+    public static List<SimpleEntry<CompilationUnit, CombinedTypeSolver>> compile(String projectDirectory) {
         CombinedTypeSolver typeSolver = new CombinedTypeSolver(new ReflectionTypeSolver());
         JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
         ParserConfiguration parserConfiguration = new ParserConfiguration().setSymbolResolver(symbolSolver);
         JavaParser parser = new JavaParser(parserConfiguration);
 
-        try(Stream<Path> paths = Files.walk(Paths.get(projectDirectory))){
-            List<File> files  = paths
-                .filter(Files::isRegularFile)
-                .filter(p -> p.toString().endsWith(".java"))
-                .map(Path::toFile)
-                .collect(Collectors.toList());
-            CompilationUnit targetCompilationUnit = null;
+        try (Stream<Path> paths = Files.walk(Paths.get(projectDirectory))) {
+            List<File> files = paths
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .map(Path::toFile)
+                    .collect(Collectors.toList());
+            List<SimpleEntry<CompilationUnit, CombinedTypeSolver>> compilationUnits = new ArrayList<>();
             for (File file : files) {
-                if (file.getCanonicalPath().equals(targetFile)) {
-                    targetCompilationUnit = parser.parse(file).getResult().orElse(null);
-                    break;
-                }
+                parser.parse(file).getResult().ifPresent(cu -> compilationUnits.add(new SimpleEntry<>(cu, typeSolver)));
             }
-
-            if (targetCompilationUnit == null) {
-                throw new IOException("Target file not found in the project directory");
+            if (compilationUnits.isEmpty()) {
+                throw new IOException("No Java files found in the project directory");
             }
-            return new SimpleEntry<>(targetCompilationUnit, typeSolver);
-        }catch (IOException e) {
-            logger.severe("Error while reading project directory");
+            return compilationUnits;
+        } catch (IOException e) {
+            logger.severe("Error while reading project directory: " + e.getMessage());
         }
-        return null;
+        return Collections.emptyList();
     }
 
     public static void main(String[] args) throws IOException {
         if (args.length != 2) {
-            System.out.println("Usage <projectFolder> <file>");
+            System.out.println("Usage <projectFolder> <outputDotFile>");
         } else {
-            logger.info("Extracting PDG from " + args[1] + " in project " + args[0] + "...");
-            SimpleEntry<CompilationUnit, CombinedTypeSolver> tuple = compile(args[0], args[1]);
+            logger.info("Extracting PDG from project " + args[0] + " and exporting to " + args[1] + "...");
+            List<SimpleEntry<CompilationUnit, CombinedTypeSolver>> compilationUnits = compile(args[0]);
+            if (compilationUnits.isEmpty()) {
+                logger.severe("Compilation failed");
+                return;
+            }
             logger.info("Compilation successful");
-            PdgExtractor pdgExtractor = new PdgExtractor(Objects.requireNonNull(tuple).getKey(), tuple.getValue());
-            logger.info("Extracting PDG...");
-            pdgExtractor.extract();
-            logger.info("Exporting PDG to pdg.dot");
-            pdgExtractor.exportToDot("pdg.dot");
-            logger.info("PDG exported to pdg.dot");
-            logger.info("Extracting type constraints...");
-            JavaParserFacade javaParserFacade = JavaParserFacade.get(tuple.getValue());
-            TypeConstraints typeConstraints = new TypeConstraints();
-            logger.info("Collecting type constraints...");
-            typeConstraints.collectForSingleFile(tuple.getKey(), javaParserFacade);
-            logger.info("Exporting type constraints to nameflows.json");
-            typeConstraints.toJson("nameflows.json");
-            logger.info("Type constraints exported to nameflows.json");
+
+            for (SimpleEntry<CompilationUnit, CombinedTypeSolver> entry : compilationUnits) {
+                PdgExtractor pdgExtractor = new PdgExtractor(entry.getKey(), entry.getValue());
+                logger.info("Extracting PDG...");
+                pdgExtractor.extract();
+                logger.info("Exporting PDG to " + args[1]);
+                pdgExtractor.exportToDot(args[1]);
+                logger.info("PDG exported to " + args[1]);
+                logger.info("Extracting type constraints...");
+                JavaParserFacade javaParserFacade = JavaParserFacade.get(entry.getValue());
+                TypeConstraints typeConstraints = new TypeConstraints();
+                logger.info("Collecting type constraints...");
+                typeConstraints.collectForSingleFile(entry.getKey(), javaParserFacade);
+                logger.info("Exporting type constraints to nameflows.json");
+                typeConstraints.toJson("nameflows.json");
+                logger.info("Type constraints exported to nameflows.json");
+            }
         }
     }
 }
