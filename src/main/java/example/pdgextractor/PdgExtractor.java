@@ -135,7 +135,8 @@ public class PdgExtractor {
     }
 
     public static List<SimpleEntry<CompilationUnit, CombinedTypeSolver>> compile(String projectDirectory) {
-        CombinedTypeSolver typeSolver = new CombinedTypeSolver(new ReflectionTypeSolver());
+        CombinedTypeSolver typeSolver = new CombinedTypeSolver();
+        typeSolver.add(new ReflectionTypeSolver());
         JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
         ParserConfiguration parserConfiguration = new ParserConfiguration().setSymbolResolver(symbolSolver);
         JavaParser parser = new JavaParser(parserConfiguration);

@@ -111,13 +111,22 @@ public class TypeConstraints {
         } else if (node instanceof MethodReturnSymbol) {
             info.put("name", node.getName());
             info.put("kind", "methodReturn");
-            info.put("type", node.getType());
+            try {
+                info.put("type", node.getType());
+            }catch (Exception e) {
+                info.put("type", "Unknown");
+            }
             info.put("symbolKind", ((MethodReturnSymbol) node).isConstructor() ? "constructor" : "method");
         } else if (node instanceof VariableSymbol) {
             info.put("name", node.getName());
             info.put("kind", "variable");
+            try{
             info.put("type", node.getType());
             info.put("symbolKind", node.getType());
+            }catch(Exception e) {
+                info.put("type", "Unknown");
+                info.put("symbolKind", "Unknown");
+            }
         }
         return info;
     }

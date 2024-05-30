@@ -5,6 +5,7 @@ import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.*;
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade;
 
@@ -29,17 +30,30 @@ public class MethodCallGraph extends VoidVisitorAdapter<Void> {
             syntaxNode = syntaxNode.getParentNode().orElse(null);
         }
 
-        Optional<ResolvedMethodDeclaration> resolvedMethod = Optional.ofNullable(javaParserFacade.solve(node).getCorrespondingDeclaration());
-        if (resolvedMethod.isPresent()) {
-            ResolvedMethodDeclaration method = resolvedMethod.get();
-            graph.addEdge(syntaxNode, new MethodEntryNode(method),
-                    new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, method), null, method);
-        } else {
+        try {
+            Optional<ResolvedMethodDeclaration> resolvedMethod = Optional.ofNullable(javaParserFacade.solve(node).getCorrespondingDeclaration());
+            if (resolvedMethod.isPresent()) {
+                ResolvedMethodDeclaration method = resolvedMethod.get();
+                graph.addEdge(syntaxNode, new MethodEntryNode(method),
+                        new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, method), null, method);
+            } else {
+                String unknownMethod = "Unk." + (node != null ? node.getName() : null);
+                graph.addEdge(syntaxNode, new UnkMethodEntryNode(unknownMethod),
+                        new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, unknownMethod), null, unknownMethod);
+            }
+        } catch (UnsolvedSymbolException e) {
             String unknownMethod = "Unk." + (node != null ? node.getName() : null);
             graph.addEdge(syntaxNode, new UnkMethodEntryNode(unknownMethod),
                     new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, unknownMethod), null, unknownMethod);
+            System.err.println("Could not resolve symbol: " + e.getName());
+        } catch (RuntimeException e) {
+            String unknownMethod = "Unk." + (node != null ? node.getName() : null);
+            graph.addEdge(syntaxNode, new UnkMethodEntryNode(unknownMethod),
+                    new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, unknownMethod), null, unknownMethod);
+            System.err.println("Could not resolve symbol: " + e.getMessage());
         }
     }
+
 
     @Override
     public void visit(ObjectCreationExpr node, Void arg) {
@@ -48,16 +62,27 @@ public class MethodCallGraph extends VoidVisitorAdapter<Void> {
         while (syntaxNode != null && !graph.containsNode(syntaxNode)) {
             syntaxNode = syntaxNode.getParentNode().orElse(null);
         }
-
-        Optional<ResolvedConstructorDeclaration> resolvedConstructor = Optional.ofNullable(javaParserFacade.solve(node).getCorrespondingDeclaration());
-        if (resolvedConstructor.isPresent()) {
-            ResolvedConstructorDeclaration constructor = resolvedConstructor.get();
-            graph.addEdge(syntaxNode, new MethodEntryNode(constructor),
-                    new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, constructor), null, constructor);
-        } else {
+        try {
+            Optional<ResolvedConstructorDeclaration> resolvedConstructor = Optional.ofNullable(javaParserFacade.solve(node).getCorrespondingDeclaration());
+            if (resolvedConstructor.isPresent()) {
+                ResolvedConstructorDeclaration constructor = resolvedConstructor.get();
+                graph.addEdge(syntaxNode, new MethodEntryNode(constructor),
+                        new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, constructor), null, constructor);
+            } else {
+                String unknownConstructor = (node != null ? node.getType().asString() : null) + ".cstr";
+                graph.addEdge(syntaxNode, new UnkMethodEntryNode(unknownConstructor),
+                        new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, unknownConstructor), null, unknownConstructor);
+            }
+        }catch (UnsolvedSymbolException e) {
             String unknownConstructor = (node != null ? node.getType().asString() : null) + ".cstr";
             graph.addEdge(syntaxNode, new UnkMethodEntryNode(unknownConstructor),
                     new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, unknownConstructor), null, unknownConstructor);
+            System.err.println("Could not resolve symbol: " + e.getName());
+        } catch (RuntimeException e) {
+            String unknownConstructor = (node != null ? node.getType().asString() : null) + ".cstr";
+            graph.addEdge(syntaxNode, new UnkMethodEntryNode(unknownConstructor),
+                    new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, unknownConstructor), null, unknownConstructor);
+            System.err.println("Could not resolve symbol: " + e.getMessage());
         }
     }
 

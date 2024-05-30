@@ -110,13 +110,23 @@ public class DataFlowGraph extends VoidVisitorAdapter<Void> {
     @Override
     public void visit(IfStmt node, Void arg) {
         node.getCondition().accept(this, arg);
+        Map<String, Set<Node>> thenOutFlow = new HashMap<>();
+        Map<String, Set<Node>> elseOutFlow = new HashMap<>();
         Map<String, Set<Node>> beforeIf = previousOutFlow.peek();
         node.getThenStmt().accept(this, arg);
-        Map<String, Set<Node>> thenOutFlow = previousOutFlow.pop();
-        previousOutFlow.push(beforeIf);
+        if(!previousOutFlow.isEmpty()) {
+             thenOutFlow = previousOutFlow.pop();
+        }
+        if(!previousOutFlow.isEmpty()) {
+            previousOutFlow.push(beforeIf);
+        }
         node.getElseStmt().ifPresent(stmt -> stmt.accept(this, arg));
-        Map<String, Set<Node>> elseOutFlow = previousOutFlow.pop();
-        previousOutFlow.push(mergeDicts(thenOutFlow, elseOutFlow));
+        if(!previousOutFlow.isEmpty()){
+            elseOutFlow = previousOutFlow.pop();
+        }
+        if(thenOutFlow != null && elseOutFlow != null) {
+            previousOutFlow.push(mergeDicts(thenOutFlow, elseOutFlow));
+        }
     }
 
     @Override
@@ -127,16 +137,13 @@ public class DataFlowGraph extends VoidVisitorAdapter<Void> {
         previousOutFlow.push(mergeDicts(Objects.requireNonNull(beforeWhile), previousOutFlow.pop()));
     }
 
-    private Map<String, Set<Node>> mergeDicts(Map<String, Set<Node>> dict1, Map<String, Set<Node>> dict2) {
-        Map<String, Set<Node>> result = new HashMap<>();
-        Set<String> keys = new HashSet<>(dict1.keySet());
-        keys.addAll(dict2.keySet());
-        for (String key : keys) {
-            Set<Node> mergedSet = new HashSet<>();
-            if (dict1.containsKey(key)) mergedSet.addAll(dict1.get(key));
-            if (dict2.containsKey(key)) mergedSet.addAll(dict2.get(key));
-            result.put(key, mergedSet);
-        }
-        return result;
+    private Map<String, Set<Node>> mergeDicts(Map<String, Set<Node>> map1, Map<String, Set<Node>> map2) {
+        Map<String, Set<Node>> merged = new HashMap<>(map1);
+        map2.forEach((key, value) -> merged.merge(key, value, (v1, v2) -> {
+            Set<Node> mergedSet = new HashSet<>(v1);
+            mergedSet.addAll(v2);
+            return mergedSet;
+        }));
+        return merged;
     }
 }

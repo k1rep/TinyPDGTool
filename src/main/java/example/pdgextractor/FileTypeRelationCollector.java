@@ -2,6 +2,7 @@ package example.pdgextractor;
 
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.nodeTypes.NodeWithArguments;
@@ -9,6 +10,7 @@ import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.resolution.MethodUsage;
 import com.github.javaparser.resolution.SymbolResolver;
+import com.github.javaparser.resolution.UnsolvedSymbolException;
 import com.github.javaparser.resolution.declarations.*;
 import com.github.javaparser.resolution.types.ResolvedReferenceType;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
@@ -16,8 +18,11 @@ import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade;
 import com.github.javaparser.symbolsolver.model.resolution.TypeSolver;
 
 import java.util.*;
+import java.util.function.BiConsumer;
+import java.util.logging.Logger;
 
 public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
+    private static final Logger logger = Logger.getLogger(FileTypeRelationCollector.class.getName());
     private final Map<AbstractNode, Set<AbstractNode>> subtypingRelationships;
     private final SymbolResolver symbolResolver;
     private final Set<ResolvedMethodDeclaration> visitedMethods = new HashSet<>();
@@ -29,7 +34,7 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
     }
 
     private void addSubtypingRelation(AbstractNode moreGeneralType, AbstractNode moreSpecificType) {
-        if(moreGeneralType == null || moreSpecificType == null) {
+        if (moreGeneralType == null || moreSpecificType == null) {
             return;
         }
         subtypingRelationships.computeIfAbsent(moreGeneralType, k -> new HashSet<>()).add(moreSpecificType);
@@ -44,9 +49,22 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
             for (Expression argument : n.getArguments()) {
                 ResolvedParameterDeclaration parameter = determineParameter(n, argument, methodDecl);
                 AbstractNode nodeSymbol = getNodeSymbol(argument);
-                if (nodeSymbol != null) {
+                if (nodeSymbol != null && parameter != null) {
                     addSubtypingRelation(new VariableSymbol(parameter, argument.getRange().map(r -> r.begin.toString()).orElse(null)), nodeSymbol);
                 }
+            }
+        }
+    }
+
+    @Override
+    public void visit(LambdaExpr n, Void arg) {
+        super.visit(n, arg);
+        ResolvedMethodDeclaration methodDecl = resolveMethod(n);
+        if (methodDecl != null && visitedMethods.add(methodDecl)) {
+            addAllMethods(methodDecl);
+            for (Parameter argument : n.getParameters()) {
+                AbstractNode nodeSymbol = new VariableSymbol(argument.resolve(), argument.getRange().map(r -> r.begin.toString()).orElse(null));
+                addSubtypingRelation(nodeSymbol, new VariableSymbol(argument.resolve(), argument.getRange().map(r -> r.begin.toString()).orElse(null)));
             }
         }
     }
@@ -55,30 +73,40 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
         if (!isUsedSymbol(methodDecl) || !visitedMethods.add(methodDecl)) {
             return;
         }
-        String location = null;
-        Optional<MethodDeclaration> methodDeclaration = methodDecl.toAst();
-        if(methodDeclaration.isPresent()) {
-            location = methodDeclaration.get().getRange().map(r -> r.begin.toString()).orElse(null);
-        }
 
-        for (ResolvedReferenceType iface : methodDecl.declaringType().getAllAncestors()){
+        String location;
+        Optional<MethodDeclaration> methodDeclaration = methodDecl.toAst();
+        location = methodDeclaration.flatMap(declaration -> declaration.getRange().map(r -> r.begin.toString())).orElse(null);
+
+        Set<ResolvedMethodDeclaration> declaredMethods = new HashSet<>(methodDecl.declaringType().getDeclaredMethods());
+
+        BiConsumer<ResolvedMethodDeclaration, Optional<MethodDeclaration>> addRelation = (resolvedMethod, methodDeclOpt) -> {
+            String resolvedLocation = methodDeclOpt.flatMap(md -> md.getRange().map(r -> r.begin.toString())).orElse(null);
+            addSubtypingRelation(new MethodReturnSymbol(resolvedMethod, resolvedLocation), new MethodReturnSymbol(methodDecl, location));
+        };
+
+        for (ResolvedReferenceType iface : methodDecl.declaringType().getAllAncestors()) {
             for (MethodUsage ifaceMethod : iface.getDeclaredMethods()) {
-                if (methodDecl.declaringType().getAllMethods().contains(ifaceMethod)) {
+                if (declaredMethods.stream().anyMatch(dm -> dm.getQualifiedSignature().equals(ifaceMethod.getQualifiedSignature()))) {
                     Optional<MethodDeclaration> interfaceMethod = ifaceMethod.getDeclaration().toAst();
-                    if(interfaceMethod.isPresent()){
-                        ResolvedMethodDeclaration resolvedInterfaceMethod = symbolResolver.resolveDeclaration(interfaceMethod.get(), ResolvedMethodDeclaration.class);
-                        addSubtypingRelation(new MethodReturnSymbol(resolvedInterfaceMethod, interfaceMethod.get().getRange().map(r -> r.begin.toString()).orElse(null)),
-                                new MethodReturnSymbol(methodDecl, location));
+                    if (interfaceMethod.isPresent()) {
+                        try {
+                            ResolvedMethodDeclaration resolvedInterfaceMethod = symbolResolver.resolveDeclaration(interfaceMethod.get(), ResolvedMethodDeclaration.class);
+                            addRelation.accept(resolvedInterfaceMethod, interfaceMethod);
+                        } catch (UnsolvedSymbolException e) {
+                            logger.warning("Unresolved symbol: " + e.getName() + " in context: " + e.getMessage());
+                        } catch (Exception e) {
+                            logger.warning("Error resolving method declaration: " + e.getMessage());
+                        }
                     }
                 }
             }
         }
 
-        for (ResolvedMethodDeclaration ancestorMethod : methodDecl.declaringType().getDeclaredMethods()) {
+        for (ResolvedMethodDeclaration ancestorMethod : declaredMethods) {
             Optional<MethodDeclaration> ancestorMethodDecl = ancestorMethod.toAst();
-            if(ancestorMethodDecl.isPresent()) {
-                addSubtypingRelation(new MethodReturnSymbol(ancestorMethod, ancestorMethodDecl.get().getRange().map(r -> r.begin.toString()).orElse(null)),
-                        new MethodReturnSymbol(methodDecl, location));
+            if (ancestorMethodDecl.isPresent()) {
+                addRelation.accept(ancestorMethod, ancestorMethodDecl);
             }
         }
     }
@@ -124,11 +152,11 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
 
     @Override
     public void visit(MethodDeclaration n, Void arg) {
-        ResolvedMethodDeclaration methodDecl = symbolResolver.resolveDeclaration(n, ResolvedMethodDeclaration.class);
-        if (methodDecl != null) {
+        super.visit(n, arg);
+        ResolvedMethodDeclaration methodDecl = resolveMethod(n);
+        if (methodDecl != null && visitedMethods.add(methodDecl)) {
             addAllMethods(methodDecl);
         }
-        super.visit(n, arg);
     }
 
     @Override
@@ -143,7 +171,7 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
                     parentNode = parentNode.getParentNode().orElse(null);
                 }
                 if (parentNode != null) {
-                    ResolvedMethodDeclaration methodDeclRef = symbolResolver.resolveDeclaration(parentNode, ResolvedMethodDeclaration.class);
+                    ResolvedMethodDeclaration methodDeclRef = resolveMethod(parentNode);
                     String location = parentNode.getRange().map(r -> r.begin.toString()).orElse(null);
                     AbstractNode moreGeneralType = new MethodReturnSymbol(methodDeclRef, location);
                     addSubtypingRelation(moreGeneralType, nodeSymbol);
@@ -171,6 +199,7 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
         try {
             return symbolResolver.resolveDeclaration(node, ResolvedMethodDeclaration.class);
         } catch (Exception e) {
+            logger.warning("Error resolving method: " + e.getMessage());
             return null;
         }
     }
@@ -179,6 +208,7 @@ public class FileTypeRelationCollector extends VoidVisitorAdapter<Void> {
         try {
             return symbolResolver.resolveDeclaration(node, ResolvedValueDeclaration.class);
         } catch (Exception e) {
+            logger.warning("Error resolving variable: " + e.getMessage());
             return null;
         }
     }
