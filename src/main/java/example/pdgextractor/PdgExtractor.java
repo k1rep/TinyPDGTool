@@ -63,13 +63,13 @@ public class PdgExtractor {
         List<SimpleEntry<BlockStmt, ResolvedMethodDeclaration>> list = allMethodDeclarationBodies();
         for (SimpleEntry<BlockStmt, ResolvedMethodDeclaration> tuple : list) {
             logger.info("Extracting control flow for " + tuple.getValue().getName() + "...");
-            new ControlFlowGraph(pdg, tuple.getValue()).addMethodDeclaration(tuple.getKey(), tuple.getValue());
+            ControlFlowGraph controlFlowGraph = new ControlFlowGraph(pdg, tuple.getValue());
+            controlFlowGraph.addMethodDeclaration(tuple.getKey(), tuple.getValue());
             logger.info("Extracting method calls for " + tuple.getValue().getName() + "...");
             new MethodCallGraph(pdg, javaParserFacade).visit(tuple.getKey(), null);
             DataFlowGraph dataFlowGraph = new DataFlowGraph(pdg, javaParserFacade);
             dataFlowGraph.visit(tuple.getKey(), null);
         }
-
     }
 
     private static String dotLineType(Map.Entry<String, Object> edgeType) {

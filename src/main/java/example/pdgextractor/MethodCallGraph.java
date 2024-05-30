@@ -5,9 +5,7 @@ import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
-import com.github.javaparser.resolution.declarations.ResolvedConstructorDeclaration;
-
-import com.github.javaparser.resolution.declarations.ResolvedMethodDeclaration;
+import com.github.javaparser.resolution.declarations.*;
 import com.github.javaparser.symbolsolver.javaparsermodel.JavaParserFacade;
 
 import java.util.AbstractMap;
@@ -65,6 +63,9 @@ public class MethodCallGraph extends VoidVisitorAdapter<Void> {
 
     @Override
     public void visit(LambdaExpr node, Void arg) {
-
+        super.visit(node, arg);
+        String unknownMethod = "Unk." + (node != null ? node.toString() : null);
+        graph.addEdge(node, new UnkMethodEntryNode(unknownMethod),
+                new AbstractMap.SimpleEntry<>(METHOD_INVOKE_EDGE, unknownMethod), null, unknownMethod);
     }
 }
